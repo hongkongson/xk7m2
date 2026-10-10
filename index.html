@@ -13,24 +13,22 @@
   html, body {
     margin: 0;
     height: 100%;
-    overflow: hidden;              /* 飘出屏幕的直接裁掉，不出现滚动条 */
+    overflow: hidden;
     background: #fffbe8;
-    font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+    font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI Emoji",
+                 system-ui, sans-serif;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     cursor: pointer;
   }
 
-  /* 每条「哈哈」都是一个绝对定位的 span，用 transform 平移。
-     用 transform 而不是 left —— 前者走 GPU 合成，几十条一起飘也不卡。 */
-  .ha {
+  /* 每条都是一小段文字，用 transform 平移（走 GPU，几百条一起飘也不卡） */
+  .bit {
     position: absolute;
     white-space: nowrap;
-    font-weight: 700;
     line-height: 1;
-    will-change: transform, opacity;
-    pointer-events: none;          /* 别挡住点击，点击交给 document */
-    letter-spacing: .02em;
+    will-change: transform;
+    pointer-events: none;      /* 别挡点击 */
   }
 </style>
 
@@ -40,101 +38,131 @@
 
 const body = document.body;
 
-// 配色：暖色为主，偶尔跳一个冷色，看起来更活
+/* ---------------------------------------------------------------
+   飘什么内容
+
+   想改文案就改这个数组。表情直接用 emoji 就行 ——
+   系统自带字体里有，不用额外加载任何东西。
+   --------------------------------------------------------------- */
+const TEXTS = [
+  // 纯「哈」
+  "哈哈", "哈哈", "哈哈哈", "哈哈哈", "哈哈哈哈", "哈哈哈哈哈",
+  // 带口头语
+  "笑死", "笑死我了", "绷不住了", "我不行了", "鹅鹅鹅",
+  // 纯表情
+  "😂", "🤣", "😆", "😄", "😁", "💀", "🤡", "😹",
+  // 混搭（占多数，看起来最像聊天）
+  "哈哈😂", "哈哈哈🤣", "哈哈哈哈😆", "笑死😂", "哈哈哈💀",
+  "哈哈哈哈哈哈", "😆哈哈", "🤣哈哈哈", "嘿嘿😁", "哈哈😄",
+  "🤣🤣", "😂😂😂", "哈哈哈哈🤣😂",
+];
+
+// 颜色：暖色为主，偶尔跳个冷色
 const COLORS = [
-  "#d9820a", "#e0940f", "#c93b3b", "#e05a2b",
+  "#c96a12", "#d9820a", "#b8452f", "#c93b3b", "#8a6b1f",
   "#1a9a4f", "#2f9e8f", "#4084ff", "#8b5cf6", "#c2478f",
 ];
 
-// 想换成别的字，改这一行就行
-const WORD = "哈";
-
 const rand = (a, b) => a + Math.random() * (b - a);
-const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+const pick = (a) => a[(Math.random() * a.length) | 0];
 
-/** 屏幕分几条"泳道"，同一条泳道短时间内不重复用，避免叠在一起看不清。 */
-const LANES = 14;
-const laneFreeAt = new Array(LANES).fill(0);
+/** 聊天字号：手机上也不会小到看不清，电脑上也不会大到糊脸。 */
+function fontSize() {
+  const m = Math.min(window.innerWidth, window.innerHeight);
+  return Math.round(Math.max(14, Math.min(21, m * 0.016)) + rand(-2, 3));
+}
+
+/* ---------------------------------------------------------------
+   泳道：把屏幕横着切成很多条，同一条短时间内不重复用
+   —— 不这么做的话，几百条小字会随机叠在一起糊成一团
+   --------------------------------------------------------------- */
+let lanes = [];
+function rebuildLanes() {
+  const h = window.innerHeight;
+  const step = 26;                       // 约一行小字的高度
+  const n = Math.max(6, Math.floor(h / step));
+  lanes = new Array(n).fill(0);          // 每条泳道「下次可用时间」
+}
+rebuildLanes();
 
 function pickLane() {
   const now = performance.now();
   const free = [];
-  for (let i = 0; i < LANES; i++) if (laneFreeAt[i] <= now) free.push(i);
-  const lane = free.length ? pick(free) : (Math.random() * LANES) | 0;
-  // 随机占用 0.6~1.6 秒，让泳道自然错开
-  laneFreeAt[lane] = now + rand(600, 1600);
+  for (let i = 0; i < lanes.length; i++) if (lanes[i] <= now) free.push(i);
+  const lane = free.length ? pick(free) : (Math.random() * lanes.length) | 0;
+  lanes[lane] = now + rand(250, 1100);   // 随机占用一会儿
   return lane;
 }
 
-/** 放一条「哈哈」出去。 */
+/* ---------------------------------------------------------------
+   放一条出去
+   --------------------------------------------------------------- */
 function spawn(opts = {}) {
   const W = window.innerWidth;
   const H = window.innerHeight;
 
   const el = document.createElement("span");
-  el.className = "ha";
-  el.textContent = WORD.repeat(opts.len || ((rand(3, 9)) | 0));
+  el.className = "bit";
+  el.textContent = opts.text || pick(TEXTS);
 
-  // 字号跟着屏幕走：手机上也不会太小、电脑上也不会太夸张
-  const base = Math.min(W, H);
-  const size = opts.size || rand(base * 0.045, base * 0.16);
-  el.style.fontSize = size + "px";
+  const fs = opts.size || fontSize();
+  el.style.fontSize = fs + "px";
   el.style.color = opts.color || pick(COLORS);
 
-  // 透明度：多数清晰，少数淡一点，堆叠时有层次感
-  el.style.opacity = opts.opacity != null ? opts.opacity : rand(0.55, 1);
+  // 透明度分三档 —— 有的清楚有的淡，看起来有远近层次，不像贴纸
+  const r = Math.random();
+  el.style.opacity = opts.opacity != null ? opts.opacity
+    : r < 0.55 ? rand(0.75, 1)      // 多数清晰
+    : r < 0.88 ? rand(0.45, 0.72)   // 一部分淡
+    : rand(0.18, 0.4);              // 少数很淡，做背景
 
   const lane = pickLane();
-  const y = (H / LANES) * lane + rand(-6, 6);
-  el.style.top = Math.max(0, Math.min(H - size, y)) + "px";
+  const y = lane * 26 + rand(-4, 4);
+  el.style.top = Math.max(0, Math.min(H - fs - 2, y)) + "px";
 
   body.appendChild(el);
 
-  // 先量出实际宽度，才能算准从哪飘到哪
-  const w = el.offsetWidth || size * 4;
+  const w = el.offsetWidth || fs * 3;
 
-  // 一半从左往右，一半从右往左 —— 两个方向交错，画面更热闹
+  // 左右双向，交错着飘才不呆板
   const ltr = Math.random() < 0.5;
-  const startX = ltr ? -w - 10 : W + 10;
-  const endX = ltr ? W + 10 : -w - 10;
-
+  const startX = ltr ? -w - 8 : W + 8;
+  const endX = ltr ? W + 8 : -w - 8;
   el.style.transform = `translateX(${startX}px)`;
 
-  // 速度：大字的走得快一点，小字的慢慢飘，看着不呆板
-  const speed = opts.speed || rand(70, 210) * (0.7 + size / base);
+  // 速度：小字慢一点像聊天，偶尔来一条快的
+  const fast = Math.random() < 0.12;
+  const speed = opts.speed || (fast ? rand(260, 420) : rand(45, 130));
   const dist = Math.abs(endX - startX);
-  const duration = (dist / speed) * 1000;
-
-  const anim = el.animate(
-    [
-      { transform: `translateX(${startX}px)` },
-      { transform: `translateX(${endX}px)` },
-    ],
-    { duration, easing: "linear", fill: "forwards" }
+  const a = el.animate(
+    [{ transform: `translateX(${startX}px)` },
+     { transform: `translateX(${endX}px)` }],
+    { duration: (dist / speed) * 1000, easing: "linear", fill: "forwards" }
   );
-
-  // 飘出屏幕就删掉，不然元素会越积越多、最后卡死
-  anim.onfinish = () => el.remove();
-  anim.oncancel = () => el.remove();
+  a.onfinish = () => el.remove();
+  a.oncancel = () => el.remove();
 }
 
-/* ---------------- 自动飘 ---------------- */
-
+/* ---------------------------------------------------------------
+   自动飘
+   --------------------------------------------------------------- */
 let timer = null;
 let running = true;
+const MAX = 190;              // 同屏上限，低端手机的保护线
 
 function start() {
   if (timer) return;
   running = true;
   const tick = () => {
     if (!running) return;
-    // 同时最多 70 条，防止在低端手机上拖慢
-    if (body.childElementCount < 70) {
+    const n = body.childElementCount;
+    if (n < MAX) {
       spawn();
-      // 一开始多放几条，屏幕上不至于空
-      if (body.childElementCount < 12) spawn();
+      // 屏幕上太空就一次多放几条，开头不至于空白
+      if (n < 40) { spawn(); spawn(); }
     }
-    timer = setTimeout(tick, rand(120, 420));
+    // 字小、数量多，节奏比大字版快一些
+    timer = setTimeout(tick, rand(45, 150));
   };
   tick();
 }
@@ -145,58 +173,56 @@ function stop() {
   timer = null;
 }
 
-/* ---------------- 点击：爆一堆 ---------------- */
-
+/* ---------------------------------------------------------------
+   点一下：从手指位置炸出一堆
+   --------------------------------------------------------------- */
 function burst(cx, cy) {
-  const n = 14;
+  const n = 22;
   for (let i = 0; i < n; i++) {
-    // 从点击的位置附近散开
     setTimeout(() => {
       const el = document.createElement("span");
-      el.className = "ha";
-      el.textContent = WORD.repeat((rand(2, 6)) | 0);
-      const base = Math.min(window.innerWidth, window.innerHeight);
-      const size = rand(base * 0.05, base * 0.12);
-      el.style.fontSize = size + "px";
+      el.className = "bit";
+      el.textContent = pick(TEXTS);
+      const fs = fontSize();
+      el.style.fontSize = fs + "px";
       el.style.color = pick(COLORS);
-      el.style.opacity = rand(0.6, 1);
-      el.style.top = Math.max(0, Math.min(window.innerHeight - size,
-        cy + rand(-90, 90))) + "px";
+      el.style.opacity = rand(0.7, 1);
+      el.style.top = Math.max(0, Math.min(window.innerHeight - fs - 2,
+        cy + rand(-70, 70))) + "px";
       body.appendChild(el);
 
-      const w = el.offsetWidth || size * 4;
-      const fromLeft = cx < window.innerWidth / 2;
-      const startX = fromLeft ? cx - w : cx;
-      const endX = fromLeft ? window.innerWidth + 10 : -w - 10;
-
+      const w = el.offsetWidth || fs * 3;
+      const toRight = cx < window.innerWidth / 2;
+      const startX = toRight ? cx - w : cx;
+      const endX = toRight ? window.innerWidth + 8 : -w - 8;
       el.style.transform = `translateX(${startX}px)`;
-      const dur = rand(1400, 3200);
       const a = el.animate(
         [{ transform: `translateX(${startX}px)` },
          { transform: `translateX(${endX}px)` }],
-        { duration: dur, easing: "linear", fill: "forwards" }
+        { duration: rand(1600, 3600), easing: "linear", fill: "forwards" }
       );
       a.onfinish = () => el.remove();
       a.oncancel = () => el.remove();
-    }, i * 45);
+    }, i * 32);
   }
 }
 
-document.addEventListener("pointerdown", (e) => {
-  burst(e.clientX, e.clientY);
-});
+document.addEventListener("pointerdown", (e) => burst(e.clientX, e.clientY));
 
-/* ---------------- 省电：切到后台就停 ---------------- */
-
+/* ---------------------------------------------------------------
+   省电 & 尺寸变化
+   --------------------------------------------------------------- */
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) stop();
-  else start();
+  if (document.hidden) stop(); else start();
 });
 
-// 页面尺寸变了（手机横竖屏切换）就把飘到屏幕外的清掉
+let rt = null;
 window.addEventListener("resize", () => {
-  for (const el of [...body.children]) el.remove();
-  laneFreeAt.fill(0);
+  clearTimeout(rt);
+  rt = setTimeout(() => {
+    for (const el of [...body.children]) el.remove();
+    rebuildLanes();
+  }, 260);
 });
 
 start();
