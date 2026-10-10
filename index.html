@@ -1,51 +1,204 @@
 <!doctype html>
-<!-- 第一行必须是 charset，否则中文全变乱码 -->
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>哈哈哈哈哈哈哈</title>
 
-<!-- 分享到微信/QQ 时显示什么。
-     注意：**不能写「哈哈哈哈哈哈哈」** —— 那会在链接卡片上直接把答案剧透，
-     好友还没点就看到了，玩笑就废了。
-     og:title 留成「...」，卡片上看不出内容；点进去才是正文。
-     （<title> 保留「哈哈哈哈哈哈哈」，那是浏览器标签页，点开之后才看得到。） -->
+<!-- 分享卡片上只显示「...」—— 写「哈哈哈哈哈哈哈」会在微信里提前剧透 -->
 <meta property="og:title" content="...">
 <meta property="og:description" content="">
 <meta name="theme-color" content="#fffbe8">
-
-<!-- 别让搜索引擎收录这个页面 -->
 <meta name="robots" content="noindex, nofollow">
 
 <style>
   html, body {
     margin: 0;
     height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    overflow: hidden;              /* 飘出屏幕的直接裁掉，不出现滚动条 */
     background: #fffbe8;
-    /* 字随窗口大小自动缩放：手机上是屏宽 18%，最大不超过 260px */
-    font-size: clamp(56px, 18vw, 260px);
     font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
-    color: #d9820a;
-    letter-spacing: .04em;
-    user-select: none;
     -webkit-tap-highlight-color: transparent;
-    transition: transform .08s, color .25s;
+    user-select: none;
     cursor: pointer;
-    overflow: hidden;
   }
-  body:active { transform: scale(.95); }
+
+  /* 每条「哈哈」都是一个绝对定位的 span，用 transform 平移。
+     用 transform 而不是 left —— 前者走 GPU 合成，几十条一起飘也不卡。 */
+  .ha {
+    position: absolute;
+    white-space: nowrap;
+    font-weight: 700;
+    line-height: 1;
+    will-change: transform, opacity;
+    pointer-events: none;          /* 别挡住点击，点击交给 document */
+    letter-spacing: .02em;
+  }
 </style>
 
-<body>哈哈哈哈哈哈哈</body>
-
+<body>
 <script>
-  // 点一下换个颜色，纯好玩。不想要就删掉这个 <script> 整块。
-  const colors = ["#d9820a", "#c93b3b", "#1a9a4f", "#4084ff", "#8b5cf6"];
-  let i = 0;
-  document.addEventListener("click", () => {
-    i = (i + 1) % colors.length;
-    document.body.style.color = colors[i];
-  });
+"use strict";
+
+const body = document.body;
+
+// 配色：暖色为主，偶尔跳一个冷色，看起来更活
+const COLORS = [
+  "#d9820a", "#e0940f", "#c93b3b", "#e05a2b",
+  "#1a9a4f", "#2f9e8f", "#4084ff", "#8b5cf6", "#c2478f",
+];
+
+// 想换成别的字，改这一行就行
+const WORD = "哈";
+
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+
+/** 屏幕分几条"泳道"，同一条泳道短时间内不重复用，避免叠在一起看不清。 */
+const LANES = 14;
+const laneFreeAt = new Array(LANES).fill(0);
+
+function pickLane() {
+  const now = performance.now();
+  const free = [];
+  for (let i = 0; i < LANES; i++) if (laneFreeAt[i] <= now) free.push(i);
+  const lane = free.length ? pick(free) : (Math.random() * LANES) | 0;
+  // 随机占用 0.6~1.6 秒，让泳道自然错开
+  laneFreeAt[lane] = now + rand(600, 1600);
+  return lane;
+}
+
+/** 放一条「哈哈」出去。 */
+function spawn(opts = {}) {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+
+  const el = document.createElement("span");
+  el.className = "ha";
+  el.textContent = WORD.repeat(opts.len || ((rand(3, 9)) | 0));
+
+  // 字号跟着屏幕走：手机上也不会太小、电脑上也不会太夸张
+  const base = Math.min(W, H);
+  const size = opts.size || rand(base * 0.045, base * 0.16);
+  el.style.fontSize = size + "px";
+  el.style.color = opts.color || pick(COLORS);
+
+  // 透明度：多数清晰，少数淡一点，堆叠时有层次感
+  el.style.opacity = opts.opacity != null ? opts.opacity : rand(0.55, 1);
+
+  const lane = pickLane();
+  const y = (H / LANES) * lane + rand(-6, 6);
+  el.style.top = Math.max(0, Math.min(H - size, y)) + "px";
+
+  body.appendChild(el);
+
+  // 先量出实际宽度，才能算准从哪飘到哪
+  const w = el.offsetWidth || size * 4;
+
+  // 一半从左往右，一半从右往左 —— 两个方向交错，画面更热闹
+  const ltr = Math.random() < 0.5;
+  const startX = ltr ? -w - 10 : W + 10;
+  const endX = ltr ? W + 10 : -w - 10;
+
+  el.style.transform = `translateX(${startX}px)`;
+
+  // 速度：大字的走得快一点，小字的慢慢飘，看着不呆板
+  const speed = opts.speed || rand(70, 210) * (0.7 + size / base);
+  const dist = Math.abs(endX - startX);
+  const duration = (dist / speed) * 1000;
+
+  const anim = el.animate(
+    [
+      { transform: `translateX(${startX}px)` },
+      { transform: `translateX(${endX}px)` },
+    ],
+    { duration, easing: "linear", fill: "forwards" }
+  );
+
+  // 飘出屏幕就删掉，不然元素会越积越多、最后卡死
+  anim.onfinish = () => el.remove();
+  anim.oncancel = () => el.remove();
+}
+
+/* ---------------- 自动飘 ---------------- */
+
+let timer = null;
+let running = true;
+
+function start() {
+  if (timer) return;
+  running = true;
+  const tick = () => {
+    if (!running) return;
+    // 同时最多 70 条，防止在低端手机上拖慢
+    if (body.childElementCount < 70) {
+      spawn();
+      // 一开始多放几条，屏幕上不至于空
+      if (body.childElementCount < 12) spawn();
+    }
+    timer = setTimeout(tick, rand(120, 420));
+  };
+  tick();
+}
+
+function stop() {
+  running = false;
+  clearTimeout(timer);
+  timer = null;
+}
+
+/* ---------------- 点击：爆一堆 ---------------- */
+
+function burst(cx, cy) {
+  const n = 14;
+  for (let i = 0; i < n; i++) {
+    // 从点击的位置附近散开
+    setTimeout(() => {
+      const el = document.createElement("span");
+      el.className = "ha";
+      el.textContent = WORD.repeat((rand(2, 6)) | 0);
+      const base = Math.min(window.innerWidth, window.innerHeight);
+      const size = rand(base * 0.05, base * 0.12);
+      el.style.fontSize = size + "px";
+      el.style.color = pick(COLORS);
+      el.style.opacity = rand(0.6, 1);
+      el.style.top = Math.max(0, Math.min(window.innerHeight - size,
+        cy + rand(-90, 90))) + "px";
+      body.appendChild(el);
+
+      const w = el.offsetWidth || size * 4;
+      const fromLeft = cx < window.innerWidth / 2;
+      const startX = fromLeft ? cx - w : cx;
+      const endX = fromLeft ? window.innerWidth + 10 : -w - 10;
+
+      el.style.transform = `translateX(${startX}px)`;
+      const dur = rand(1400, 3200);
+      const a = el.animate(
+        [{ transform: `translateX(${startX}px)` },
+         { transform: `translateX(${endX}px)` }],
+        { duration: dur, easing: "linear", fill: "forwards" }
+      );
+      a.onfinish = () => el.remove();
+      a.oncancel = () => el.remove();
+    }, i * 45);
+  }
+}
+
+document.addEventListener("pointerdown", (e) => {
+  burst(e.clientX, e.clientY);
+});
+
+/* ---------------- 省电：切到后台就停 ---------------- */
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stop();
+  else start();
+});
+
+// 页面尺寸变了（手机横竖屏切换）就把飘到屏幕外的清掉
+window.addEventListener("resize", () => {
+  for (const el of [...body.children]) el.remove();
+  laneFreeAt.fill(0);
+});
+
+start();
 </script>
+</body>
