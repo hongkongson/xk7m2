@@ -15,216 +15,277 @@
     height: 100%;
     overflow: hidden;
     background: #fffbe8;
-    font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI Emoji",
-                 system-ui, sans-serif;
+    font-family: "Microsoft YaHei UI", "PingFang SC", "Heiti SC",
+                 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
     -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
     user-select: none;
     cursor: pointer;
   }
 
-  /* 每条都是一小段文字，用 transform 平移（走 GPU，几百条一起飘也不卡） */
+  /* 每条都是一小段文字。
+     飘动用的是**纯 CSS 动画**，不用 element.animate() ——
+     后者要 iOS 13.1+ / Safari 13.1+，旧手机上会直接抛错、
+     整个页面一片空白。CSS 动画连很老的手机都认。 */
   .bit {
     position: absolute;
+    left: 0;
     white-space: nowrap;
     line-height: 1;
-    will-change: transform;
-    pointer-events: none;      /* 别挡点击 */
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+    -webkit-animation-timing-function: linear;
+    -webkit-animation-fill-mode: forwards;
+    pointer-events: none;
+  }
+
+  /* 从左往右：起点在自己宽度之外（屏幕左边外），终点是屏幕右边缘 */
+  @keyframes flyLtr {
+    from { transform: translateX(-105%); -webkit-transform: translateX(-105%); }
+    to   { transform: translateX(100vw);  -webkit-transform: translateX(100vw); }
+  }
+  /* 从右往左 */
+  @keyframes flyRtl {
+    from { transform: translateX(100vw);  -webkit-transform: translateX(100vw); }
+    to   { transform: translateX(-105%); -webkit-transform: translateX(-105%); }
+  }
+
+  .ltr { animation-name: flyLtr; -webkit-animation-name: flyLtr; }
+  .rtl { animation-name: flyRtl; -webkit-animation-name: flyRtl; }
+
+  /* JS 万一完全没跑起来，至少还能看到一片哈哈，不至于白屏 */
+  #fallback {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: .3em;
+    font-size: 13vw;
+    color: #d9820a;
+    letter-spacing: .05em;
+    text-align: center;
+    padding: 5vw;
+    box-sizing: border-box;
   }
 </style>
 
 <body>
+<div id="fallback">哈哈哈哈哈哈哈😂🤣</div>
 <script>
 "use strict";
 
-const body = document.body;
+/* 这一段包在 try 里：万一某个浏览器不认某句语法，
+   至少要把兜底的静态「哈哈」显示出来，而不是一片空白。 */
+try {
 
-/* ---------------------------------------------------------------
-   飘什么内容
+  var body = document.body;
 
-   想改文案就改这个数组。表情直接用 emoji 就行 ——
-   系统自带字体里有，不用额外加载任何东西。
-   --------------------------------------------------------------- */
-const TEXTS = [
-  // 纯「哈」
-  "哈哈", "哈哈", "哈哈哈", "哈哈哈", "哈哈哈哈", "哈哈哈哈哈",
-  // 带口头语
-  "笑死", "笑死我了", "绷不住了", "我不行了", "鹅鹅鹅",
-  // 纯表情
-  "😂", "🤣", "😆", "😄", "😁", "💀", "🤡", "😹",
-  // 混搭（占多数，看起来最像聊天）
-  "哈哈😂", "哈哈哈🤣", "哈哈哈哈😆", "笑死😂", "哈哈哈💀",
-  "哈哈哈哈哈哈", "😆哈哈", "🤣哈哈哈", "嘿嘿😁", "哈哈😄",
-  "🤣🤣", "😂😂😂", "哈哈哈哈🤣😂",
-];
+  /* -------------------------------------------------------------
+     飘什么内容 —— 想改文案就改这个数组
+     ------------------------------------------------------------- */
+  var TEXTS = [
+    "哈哈", "哈哈", "哈哈哈", "哈哈哈", "哈哈哈哈", "哈哈哈哈哈",
+    "笑死", "笑死我了", "绷不住了", "我不行了", "鹅鹅鹅",
+    "\uD83D\uDE02", "\uD83E\uDD23", "\uD83D\uDE06", "\uD83D\uDE04",
+    "\uD83D\uDE01", "\uD83D\uDC80", "\uD83E\uDD21", "\uD83D\uDE39",
+    "哈哈\uD83D\uDE02", "哈哈哈\uD83E\uDD23", "哈哈哈哈\uD83D\uDE06",
+    "笑死\uD83D\uDE02", "哈哈哈\uD83D\uDC80", "哈哈哈哈哈哈",
+    "\uD83D\uDE06哈哈", "\uD83E\uDD23哈哈哈", "嘿嘿\uD83D\uDE01",
+    "哈哈\uD83D\uDE04", "\uD83E\uDD23\uD83E\uDD23", "\uD83D\uDE02\uD83D\uDE02\uD83D\uDE02"
+  ];
 
-// 颜色：暖色为主，偶尔跳个冷色
-const COLORS = [
-  "#c96a12", "#d9820a", "#b8452f", "#c93b3b", "#8a6b1f",
-  "#1a9a4f", "#2f9e8f", "#4084ff", "#8b5cf6", "#c2478f",
-];
+  var COLORS = [
+    "#c96a12", "#d9820a", "#b8452f", "#c93b3b", "#8a6b1f",
+    "#1a9a4f", "#2f9e8f", "#4084ff", "#8b5cf6", "#c2478f"
+  ];
 
-const rand = (a, b) => a + Math.random() * (b - a);
-const pick = (a) => a[(Math.random() * a.length) | 0];
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function pick(a) { return a[(Math.random() * a.length) | 0]; }
 
-/** 聊天字号：手机上也不会小到看不清，电脑上也不会大到糊脸。 */
-function fontSize() {
-  const m = Math.min(window.innerWidth, window.innerHeight);
-  return Math.round(Math.max(14, Math.min(21, m * 0.016)) + rand(-2, 3));
-}
+  /** 聊天字号：手机上也不至于看不清，电脑上也不至于糊脸 */
+  function fontSize() {
+    var m = Math.min(window.innerWidth, window.innerHeight);
+    return Math.round(Math.max(14, Math.min(21, m * 0.016)) + rand(-2, 3));
+  }
 
-/* ---------------------------------------------------------------
-   泳道：把屏幕横着切成很多条，同一条短时间内不重复用
-   —— 不这么做的话，几百条小字会随机叠在一起糊成一团
-   --------------------------------------------------------------- */
-let lanes = [];
-function rebuildLanes() {
-  const h = window.innerHeight;
-  const step = 26;                       // 约一行小字的高度
-  const n = Math.max(6, Math.floor(h / step));
-  lanes = new Array(n).fill(0);          // 每条泳道「下次可用时间」
-}
-rebuildLanes();
+  /* -------------------------------------------------------------
+     泳道：屏幕横着切成很多条，同一条短时间内不重复用。
+     不这么做的话，几百条小字会随机叠在一起糊成一团。
+     ------------------------------------------------------------- */
+  var lanes = [];
+  var LANE_H = 26;
 
-function pickLane() {
-  const now = performance.now();
-  const free = [];
-  for (let i = 0; i < lanes.length; i++) if (lanes[i] <= now) free.push(i);
-  const lane = free.length ? pick(free) : (Math.random() * lanes.length) | 0;
-  lanes[lane] = now + rand(250, 1100);   // 随机占用一会儿
-  return lane;
-}
+  function rebuildLanes() {
+    var n = Math.max(6, Math.floor(window.innerHeight / LANE_H));
+    lanes = [];
+    for (var i = 0; i < n; i++) lanes.push(0);
+  }
+  rebuildLanes();
 
-/* ---------------------------------------------------------------
-   放一条出去
-   --------------------------------------------------------------- */
-function spawn(opts = {}) {
-  const W = window.innerWidth;
-  const H = window.innerHeight;
+  function pickLane() {
+    var now = Date.now();
+    var free = [];
+    for (var i = 0; i < lanes.length; i++) {
+      if (lanes[i] <= now) free.push(i);
+    }
+    var lane = free.length ? pick(free) : ((Math.random() * lanes.length) | 0);
+    lanes[lane] = now + rand(250, 1100);
+    return lane;
+  }
 
-  const el = document.createElement("span");
-  el.className = "bit";
-  el.textContent = opts.text || pick(TEXTS);
+  /* -------------------------------------------------------------
+     放一条出去
+     ------------------------------------------------------------- */
+  var seq = 0;
 
-  const fs = opts.size || fontSize();
-  el.style.fontSize = fs + "px";
-  el.style.color = opts.color || pick(COLORS);
+  function spawn(opts) {
+    opts = opts || {};
+    var W = window.innerWidth;
+    var H = window.innerHeight;
 
-  // 透明度分三档 —— 有的清楚有的淡，看起来有远近层次，不像贴纸
-  const r = Math.random();
-  el.style.opacity = opts.opacity != null ? opts.opacity
-    : r < 0.55 ? rand(0.75, 1)      // 多数清晰
-    : r < 0.88 ? rand(0.45, 0.72)   // 一部分淡
-    : rand(0.18, 0.4);              // 少数很淡，做背景
+    var el = document.createElement("span");
+    el.className = "bit";
+    el.textContent = opts.text || pick(TEXTS);
 
-  const lane = pickLane();
-  const y = lane * 26 + rand(-4, 4);
-  el.style.top = Math.max(0, Math.min(H - fs - 2, y)) + "px";
+    var fs = opts.size || fontSize();
+    el.style.fontSize = fs + "px";
+    el.style.color = opts.color || pick(COLORS);
 
-  body.appendChild(el);
+    // 三档透明度：有的清楚有的淡，看着有远近层次，不像贴纸糊满屏
+    var r = Math.random();
+    el.style.opacity = opts.opacity != null ? opts.opacity
+      : (r < 0.55 ? rand(0.75, 1)
+        : r < 0.88 ? rand(0.45, 0.72)
+          : rand(0.18, 0.4));
 
-  const w = el.offsetWidth || fs * 3;
+    var lane = pickLane();
+    var y = lane * LANE_H + rand(-4, 4);
+    el.style.top = Math.max(0, Math.min(H - fs - 2, y)) + "px";
 
-  // 左右双向，交错着飘才不呆板
-  const ltr = Math.random() < 0.5;
-  const startX = ltr ? -w - 8 : W + 8;
-  const endX = ltr ? W + 8 : -w - 8;
-  el.style.transform = `translateX(${startX}px)`;
+    // 左右双向交错，看着才不呆板
+    var ltr = Math.random() < 0.5;
+    el.className = "bit " + (ltr ? "ltr" : "rtl");
 
-  // 速度：小字慢一点像聊天，偶尔来一条快的
-  const fast = Math.random() < 0.12;
-  const speed = opts.speed || (fast ? rand(260, 420) : rand(45, 130));
-  const dist = Math.abs(endX - startX);
-  const a = el.animate(
-    [{ transform: `translateX(${startX}px)` },
-     { transform: `translateX(${endX}px)` }],
-    { duration: (dist / speed) * 1000, easing: "linear", fill: "forwards" }
-  );
-  a.onfinish = () => el.remove();
-  a.oncancel = () => el.remove();
-}
+    // 速度：小字慢慢飘像聊天，偶尔来一条快的
+    var fast = Math.random() < 0.12;
+    var speed = opts.speed || (fast ? rand(260, 420) : rand(45, 130));
+    // 路程 ≈ 屏宽 + 自己宽度，用屏宽近似就够
+    var dur = ((W + 200) / speed) * 1000;
+    el.style.animationDuration = dur + "ms";
+    el.style.webkitAnimationDuration = dur + "ms";
+    // 负延时 = 一进来就已经飘在半路上，屏幕上不会一开始空一片
+    el.style.animationDelay = (-Math.random() * dur * 0.9) + "ms";
 
-/* ---------------------------------------------------------------
-   自动飘
-   --------------------------------------------------------------- */
-let timer = null;
-let running = true;
-const MAX = 190;              // 同屏上限，低端手机的保护线
+    el.setAttribute("data-i", ++seq);
 
-function start() {
-  if (timer) return;
-  running = true;
-  const tick = () => {
+    // 飘完就删，不然元素越积越多，几分钟后页面就卡死了
+    el.addEventListener("animationend", function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+
+    body.appendChild(el);
+  }
+
+  /* -------------------------------------------------------------
+     自动飘
+     ------------------------------------------------------------- */
+  var timer = null;
+  var running = true;
+  var MAX = 190;
+
+  function tick() {
     if (!running) return;
-    const n = body.childElementCount;
+    var n = body.childElementCount;
     if (n < MAX) {
       spawn();
-      // 屏幕上太空就一次多放几条，开头不至于空白
       if (n < 40) { spawn(); spawn(); }
     }
-    // 字小、数量多，节奏比大字版快一些
     timer = setTimeout(tick, rand(45, 150));
-  };
-  tick();
-}
-
-function stop() {
-  running = false;
-  clearTimeout(timer);
-  timer = null;
-}
-
-/* ---------------------------------------------------------------
-   点一下：从手指位置炸出一堆
-   --------------------------------------------------------------- */
-function burst(cx, cy) {
-  const n = 22;
-  for (let i = 0; i < n; i++) {
-    setTimeout(() => {
-      const el = document.createElement("span");
-      el.className = "bit";
-      el.textContent = pick(TEXTS);
-      const fs = fontSize();
-      el.style.fontSize = fs + "px";
-      el.style.color = pick(COLORS);
-      el.style.opacity = rand(0.7, 1);
-      el.style.top = Math.max(0, Math.min(window.innerHeight - fs - 2,
-        cy + rand(-70, 70))) + "px";
-      body.appendChild(el);
-
-      const w = el.offsetWidth || fs * 3;
-      const toRight = cx < window.innerWidth / 2;
-      const startX = toRight ? cx - w : cx;
-      const endX = toRight ? window.innerWidth + 8 : -w - 8;
-      el.style.transform = `translateX(${startX}px)`;
-      const a = el.animate(
-        [{ transform: `translateX(${startX}px)` },
-         { transform: `translateX(${endX}px)` }],
-        { duration: rand(1600, 3600), easing: "linear", fill: "forwards" }
-      );
-      a.onfinish = () => el.remove();
-      a.oncancel = () => el.remove();
-    }, i * 32);
   }
+
+  function start() {
+    if (timer) return;
+    running = true;
+    // 兜底那行大字先藏起来，动画跑起来就不需要它了
+    var fb = document.getElementById("fallback");
+    if (fb) fb.style.display = "none";
+    tick();
+  }
+
+  function stop() {
+    running = false;
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+
+  /* -------------------------------------------------------------
+     点一下：从手指位置炸出一堆
+     ------------------------------------------------------------- */
+  function burst(cx, cy) {
+    for (var i = 0; i < 22; i++) {
+      (function (i) {
+        setTimeout(function () {
+          var el = document.createElement("span");
+          var fs = fontSize();
+          el.className = "bit";
+          el.textContent = pick(TEXTS);
+          el.style.fontSize = fs + "px";
+          el.style.color = pick(COLORS);
+          el.style.opacity = rand(0.7, 1);
+          el.style.top = Math.max(0, Math.min(window.innerHeight - fs - 2,
+            cy + rand(-70, 70))) + "px";
+          var toRight = cx < window.innerWidth / 2;
+          el.className = "bit " + (toRight ? "ltr" : "rtl");
+          var dur = rand(1600, 3600);
+          el.style.animationDuration = dur + "ms";
+          el.style.webkitAnimationDuration = dur + "ms";
+          el.style.animationDelay = "0ms";
+          el.addEventListener("animationend", function () {
+            if (el.parentNode) el.parentNode.removeChild(el);
+          });
+          body.appendChild(el);
+        }, i * 32);
+      })(i);
+    }
+  }
+
+  var down = "onpointerdown" in window ? "pointerdown" : "touchstart";
+  document.addEventListener(down, function (e) {
+    var t = (e.touches && e.touches[0]) || e;
+    burst(t.clientX || 0, t.clientY || 0);
+  });
+
+  /* -------------------------------------------------------------
+     省电 & 尺寸变化
+     ------------------------------------------------------------- */
+  var hiddenProp = document.hidden !== undefined ? "hidden" : "webkitHidden";
+  document.addEventListener("visibilitychange", function () {
+    if (document[hiddenProp]) stop(); else start();
+  });
+
+  var rt = null;
+  window.addEventListener("resize", function () {
+    if (rt) clearTimeout(rt);
+    rt = setTimeout(function () {
+      var kids = [].slice.call(body.children);
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i].className && kids[i].className.indexOf("bit") >= 0) {
+          if (kids[i].parentNode) kids[i].parentNode.removeChild(kids[i]);
+        }
+      }
+      rebuildLanes();
+    }, 260);
+  });
+
+  start();
+
+} catch (err) {
+  // 出错就把兜底内容露出来 —— 宁可看到一个静态的「哈哈」，
+  // 也不要一片空白让人以为打不开
+  var fb = document.getElementById("fallback");
+  if (fb) fb.style.display = "flex";
 }
-
-document.addEventListener("pointerdown", (e) => burst(e.clientX, e.clientY));
-
-/* ---------------------------------------------------------------
-   省电 & 尺寸变化
-   --------------------------------------------------------------- */
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) stop(); else start();
-});
-
-let rt = null;
-window.addEventListener("resize", () => {
-  clearTimeout(rt);
-  rt = setTimeout(() => {
-    for (const el of [...body.children]) el.remove();
-    rebuildLanes();
-  }, 260);
-});
-
-start();
 </script>
 </body>
