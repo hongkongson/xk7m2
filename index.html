@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- 第一行必须是 charset，否则中文全变乱码 -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>哈哈哈哈哈哈哈</title>
+
+<!-- 分享到微信/QQ 时显示的标题（不写的话会拿 <title>） -->
+<meta property="og:title" content="哈哈哈哈哈哈哈">
+<meta property="og:description" content="">
+<meta name="theme-color" content="#fffbe8">
+
+<!-- 别让搜索引擎收录这个页面 -->
+<meta name="robots" content="noindex, nofollow">
+
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fffbe8;
+    /* 字随窗口大小自动缩放：手机上是屏宽 18%，最大不超过 260px */
+    font-size: clamp(56px, 18vw, 260px);
+    font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+    color: #d9820a;
+    letter-spacing: .04em;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform .08s, color .25s;
+    cursor: pointer;
+    overflow: hidden;
+  }
+  body:active { transform: scale(.95); }
+</style>
+
+<body>哈哈哈哈哈哈哈</body>
+
+<script>
+  // 点一下换个颜色，纯好玩。不想要就删掉这个 <script> 整块。
+  const colors = ["#d9820a", "#c93b3b", "#1a9a4f", "#4084ff", "#8b5cf6"];
+  let i = 0;
+  document.addEventListener("click", () => {
+    i = (i + 1) % colors.length;
+    document.body.style.color = colors[i];
+  });
+</script>
