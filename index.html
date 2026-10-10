@@ -88,6 +88,32 @@
     -webkit-animation-fill-mode: forwards;
   }
 
+  /* ---------- 声音开关 ---------- */
+  /* 声音是**自动开**的，这个按钮只是"想安静时点一下"。
+     所以平时它非常淡（35% 透明），不抢戏。 */
+  #snd {
+    position: fixed;
+    right: 10px; bottom: 10px;
+    z-index: 9999;
+    width: 34px; height: 34px;
+    line-height: 1;
+    font-size: 15px;
+    padding: 0;
+    border: 1px solid rgba(255, 110, 160, .28);
+    border-radius: 50%;
+    background: rgba(30, 6, 16, .4);
+    color: #ff9ec4;
+    cursor: pointer;
+    opacity: .35;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    -webkit-transition: opacity .3s, background .2s;
+    transition: opacity .3s, background .2s;
+    -webkit-user-select: none; user-select: none;
+    font-family: inherit;
+  }
+  #snd:hover, #snd:active { opacity: .9; background: rgba(60, 12, 30, .7); }
+
   #fallback {
     position: absolute; inset: 0;
     display: -webkit-box; display: flex;
@@ -102,6 +128,9 @@
 
 <body>
 <div id="fallback">哈哈哈哈哈哈哈😂🤣</div>
+<button id="snd" type="button" title="声音开关">
+  <span class="ico">🔊</span>
+</button>
 
 <script>
 "use strict";
@@ -404,10 +433,272 @@ try {
     }
   }
 
+  /* =============================================================
+     声音：现场合成一段马戏团手摇风琴（calliope）循环
+
+     为什么不用音频文件：
+       · 不用下载任何东西，**断网也能响**
+       · 没有版权问题
+       · 整个"音源"就是下面这几十行，比一个 mp3 还小
+
+     音色怎么来的：手摇风琴是蒸汽吹哨片，声音**又亮又有点跑调**。
+     所以用方波（谐波多，像哨音）+ 两个略微失谐的振荡器叠加，
+     再加一个低音做"蹦蹦"的伴奏。
+     ============================================================= */
+  var Audio = (function () {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    var ctx = null, master = null;
+    var started = false, muted = false;
+    var timer = null, nextTime = 0, step = 0;
+
+    var BPM = 84;                    // 慢 —— 轻音乐不能急
+    var SPB = 60 / BPM / 2;          // 一个八分音符多长（秒）
+    var VOL = 0.42;                  // 正常音量（淡入到这里）
+
+    /* 和弦走向 C - Am - F - G，最"顺耳"的那一套 */
+    var CHORDS = [
+      [60, 64, 67, 72],              // C
+      [57, 60, 64, 69],              // Am
+      [53, 57, 60, 65],              // F
+      [55, 59, 62, 67]               // G
+    ];
+    /* 主旋律：每半拍一个位置，0 = 空着。
+       轻音乐靠**留白**，塞满了就成进行曲了。 */
+    var MEL = [
+      72, 0, 76, 0, 79, 0, 76, 0,
+      69, 0, 72, 0, 76, 0, 72, 0,
+      65, 0, 69, 0, 72, 0, 69, 0,
+      67, 0, 71, 0, 74, 0, 71, 0
+    ];
+    /* 低音：每小节一个长音，轻轻垫在底下 */
+    var BASS = [48, 45, 41, 43];
+    /* 琶音拨弦顺序：上下起伏，比顺序循环好听 */
+    var ARP = [0, 1, 2, 3, 2, 1];
+
+    var dry = null, wet = null;
+    var fadedIn = false;
+
+    function hz(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
+
+    /** 一个柔和的音：正弦 + 高八度微光，慢起音、长衰减 ——
+        这是音乐盒 / 钟琴的质感。方波那种"哨音"太扎耳，不适合轻音乐。 */
+    function soft(t, midi, dur, vol) {
+      if (!midi) return;
+      var o = ctx.createOscillator(), o2 = ctx.createOscillator();
+      var g = ctx.createGain(), g2 = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = hz(midi);
+      o2.type = "sine";
+      o2.frequency.value = hz(midi) * 2.004;   // 高八度 + 一点失谐 = 钟琴的微光
+      g2.gain.value = 0.16;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.045);  // 慢起音，不刺耳
+      g.gain.exponentialRampToValueAtTime(0.0004, t + dur);
+      o.connect(g); o2.connect(g2); g2.connect(g);
+      g.connect(dry); g.connect(wet);
+      o.start(t); o2.start(t);
+      o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+    }
+
+    /** 每隔一小段排一次未来的音 —— 不这么做，定时器一抖节奏就散了 */
+    function schedule() {
+      if (!ctx) return;
+      // 被浏览器挂起时**不要排音** —— 那会排出一堆"过去的时间"，
+      // 等真正响起来的时候全部挤在一起炸出来。
+      if (ctx.state !== "running") return;
+      var ahead = 0.5;
+      while (nextTime < ctx.currentTime + ahead) {
+        var i = step % 32;
+        var bar = (i / 8) | 0;
+        var chord = CHORDS[bar];
+
+        // 琶音：每半拍轻轻拨一个和弦音
+        soft(nextTime, chord[ARP[i % 6]], SPB * 1.9, 0.042);
+
+        // 主旋律
+        if (MEL[i]) soft(nextTime, MEL[i], SPB * 3.2, 0.085);
+
+        // 低音：每小节头拍一个长音
+        if (i % 8 === 0) soft(nextTime, BASS[bar], SPB * 7, 0.065);
+
+        nextTime += SPB;
+        step++;
+      }
+    }
+
+    function loop() {
+      schedule();
+      timer = setTimeout(loop, 90);
+    }
+
+    /**
+     * 把主音量从 0 淡到 VOL。
+     *
+     * ⚠ 这一行**绝对不能少** —— 踩过的坑：boot() 里把 gain 设成 0
+     * 准备淡入，却忘了写淡入本身，于是音乐一直在正常调度、
+     * 计算全对、**就是一点声音都没有**，而且不报任何错。
+     */
+    function fadeIn() {
+      if (fadedIn || !ctx || muted) return;
+      if (ctx.state !== "running") return;
+      try {
+        var t = ctx.currentTime;
+        master.gain.cancelScheduledValues(t);
+        master.gain.setValueAtTime(master.gain.value, t);
+        master.gain.linearRampToValueAtTime(VOL, t + 1.6);
+        fadedIn = true;
+      } catch (e) {}
+    }
+
+    return {
+      /**
+       * 建好音频引擎并把音乐排上。
+       *
+       * **一进页面就调它**（不需要用户先点）。浏览器多半会把 AudioContext
+       * 建在 "suspended" 状态，那就什么也听不到 —— 这时再等任意一次
+       * 交互去 resume()。这样"打开就响"和"浏览器不许自动播放"两头都占。
+       */
+      boot: function () {
+        if (started || !AC) return false;
+        try {
+          ctx = new AC();
+          master = ctx.createGain();
+          master.gain.value = 0;                 // 从 0 淡入，别一上来"啪"一声
+          master.connect(ctx.destination);
+
+          // 一条延迟线做空间感 —— 比正经混响便宜得多，轻音乐够用了
+          var delay = ctx.createDelay(1.0);
+          delay.delayTime.value = 0.32;
+          var fb = ctx.createGain();
+          fb.gain.value = 0.28;
+          wet = ctx.createGain();
+          wet.gain.value = 0.34;
+          delay.connect(fb); fb.connect(delay);
+          delay.connect(master);
+          wet.connect(delay);
+
+          dry = ctx.createGain();
+          dry.gain.value = 1;
+          dry.connect(master);
+
+          nextTime = ctx.currentTime + 0.1;
+          started = true;
+          loop();
+          this.resume();          // resume 里会负责淡入
+          return true;
+        } catch (e) { return false; }
+      },
+      /** 被浏览器挂起时，靠一次用户交互把它唤醒，然后淡入 */
+      resume: function () {
+        if (!ctx) return;
+        var self = this;
+        try {
+          if (ctx.state === "suspended" && ctx.resume) {
+            var p = ctx.resume();
+            if (p && p.then) {
+              p.then(function () { fadeIn(); },
+                     function () { /* 还是不让放，等下一次交互 */ });
+            } else {
+              setTimeout(function () { fadeIn(); }, 120);
+            }
+          } else if (ctx.state === "running") {
+            fadeIn();
+          }
+        } catch (e) {}
+        return self;
+      },
+      /** 真的在响吗（而不是"建好了但被挂着"） */
+      isPlaying: function () {
+        return started && !!ctx && ctx.state === "running" && !muted;
+      },
+      toggle: function () {
+        if (!started) { return this.boot(); }
+        muted = !muted;
+        try {
+          master.gain.cancelScheduledValues(ctx.currentTime);
+          master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+        } catch (e) {}
+        master.gain.linearRampToValueAtTime(muted ? 0 : VOL,
+          ctx.currentTime + 0.3);
+        return !muted;
+      },
+      isStarted: function () { return started; },
+      isMuted: function () { return muted; },
+      /** 点屏幕时的"叮"一声，很轻，配轻音乐 */
+      blip: function () {
+        if (!started || muted || !ctx || ctx.state !== "running") return;
+        try {
+          var t = ctx.currentTime;
+          var o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = "sine";
+          o.frequency.setValueAtTime(1320, t);
+          o.frequency.exponentialRampToValueAtTime(1760, t + 0.08);
+          g.gain.setValueAtTime(0, t);
+          g.gain.linearRampToValueAtTime(0.05, t + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0004, t + 0.3);
+          o.connect(g); g.connect(dry); g.connect(wet);
+          o.start(t); o.stop(t + 0.32);
+        } catch (e) {}
+      }
+    };
+  })();
+
+  /* -------------------------------------------------------------
+     声音：**进页面就自动开**，不用点
+
+     但浏览器有硬规定：不许网页自动出声。所以这里分两步走 ——
+
+       ① 立刻 boot()：把音频引擎建好、音乐排上。
+          有些环境（微信内置浏览器、用户常访问的站点）这时候就能响。
+       ② 如果被浏览器挂起（state === "suspended"），
+          就等**任意一次交互**把它唤醒：点、触摸、滚、按键都算。
+          用户随便动一下，声音就来了，不用去找什么按钮。
+     ------------------------------------------------------------- */
+  Audio.boot();
+
+  var unlocked = false;
+  function unlock() {
+    if (unlocked && Audio.isPlaying()) return;
+    Audio.resume();
+    // resume 是异步的，稍等一下再看真的响了没
+    setTimeout(function () {
+      if (Audio.isPlaying()) {
+        unlocked = true;
+        paintSnd();
+      }
+    }, 60);
+  }
+  document.addEventListener("pointerdown", unlock);
+  document.addEventListener("touchstart", unlock);
+  document.addEventListener("click", unlock);
+  document.addEventListener("keydown", unlock);
+  document.addEventListener("touchmove", unlock);
+  window.addEventListener("scroll", unlock);
+
+  /* 声音开关 —— 不再是"点我开启"，而是**关掉**用的。
+     默认就响，想安静才点它。所以平时它很淡，不抢戏。 */
+  var sndBtn = document.getElementById("snd");
+  function paintSnd() {
+    if (!sndBtn) return;
+    var on = !Audio.isMuted();
+    sndBtn.className = Audio.isStarted() ? "on" : "";
+    sndBtn.firstChild.textContent = on ? "\uD83D\uDD0A" : "\uD83D\uDD07";
+  }
+  if (sndBtn) {
+    sndBtn.addEventListener("click", function (e) {
+      e.stopPropagation();          // 别让它同时触发"炸一堆"
+      e.preventDefault();
+      Audio.toggle();
+      paintSnd();
+    });
+  }
+
   var downEvt = ("onpointerdown" in window) ? "pointerdown" : "touchstart";
   document.addEventListener(downEvt, function (e) {
     var t = (e.touches && e.touches[0]) || e;
+    if (sndBtn && e.target === sndBtn) return;    // 点按钮时别炸字
     burst(t.clientX || 0, t.clientY || 0);
+    Audio.blip();
   });
 
   /* -------------------------------------------------------------
