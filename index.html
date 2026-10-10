@@ -488,87 +488,165 @@ try {
     var AC = window.AudioContext || window.webkitAudioContext;
     var ctx = null, master = null;
     var started = false, muted = false;
-    var timer = null, nextTime = 0, step = 0;
+    var timer = null, step = 0;
 
-    var BPM = 84;                    // 慢 —— 轻音乐不能急
-    var SPB = 60 / BPM / 2;          // 一个八分音符多长（秒）
     var VOL = 0.42;                  // 正常音量（淡入到这里）
-
-    /* 和弦走向 C - Am - F - G，最"顺耳"的那一套 */
-    var CHORDS = [
-      [60, 64, 67, 72],              // C
-      [57, 60, 64, 69],              // Am
-      [53, 57, 60, 65],              // F
-      [55, 59, 62, 67]               // G
-    ];
-    /* 主旋律：每半拍一个位置，0 = 空着。
-       轻音乐靠**留白**，塞满了就成进行曲了。 */
-    var MEL = [
-      72, 0, 76, 0, 79, 0, 76, 0,
-      69, 0, 72, 0, 76, 0, 72, 0,
-      65, 0, 69, 0, 72, 0, 69, 0,
-      67, 0, 71, 0, 74, 0, 71, 0
-    ];
-    /* 低音：每小节一个长音，轻轻垫在底下 */
-    var BASS = [48, 45, 41, 43];
-    /* 琶音拨弦顺序：上下起伏，比顺序循环好听 */
-    var ARP = [0, 1, 2, 3, 2, 1];
 
     var dry = null, wet = null;
     var fadedIn = false;
     var lastErr = "无";
 
-    function hz(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
+    /* ---- 真实录音（sounds/laugh.mp3）----
+       加载成功就循环放它；加载失败才退回下面那套合成笑声。
+       这样"文件没传上去""网络不好"之类的意外不会导致一片死寂。 */
+    var laughBuf = null;     // 解码后的音频
+    var laughSrc = null;     // 正在循环的播放源
+    var useSynth = false;    // true = 用合成笑声兜底
+    var laughTried = false;
 
-    /** 一个柔和的音：正弦 + 高八度微光，慢起音、长衰减 ——
-        这是音乐盒 / 钟琴的质感。方波那种"哨音"太扎耳，不适合轻音乐。 */
-    function soft(t, midi, dur, vol) {
-      if (!midi) return;
-      var o = ctx.createOscillator(), o2 = ctx.createOscillator();
-      var g = ctx.createGain(), g2 = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = hz(midi);
-      o2.type = "sine";
-      o2.frequency.value = hz(midi) * 2.004;   // 高八度 + 一点失谐 = 钟琴的微光
-      g2.gain.value = 0.16;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(vol, t + 0.045);  // 慢起音，不刺耳
-      g.gain.exponentialRampToValueAtTime(0.0004, t + dur);
-      o.connect(g); o2.connect(g2); g2.connect(g);
-      g.connect(dry); g.connect(wet);
-      o.start(t); o2.start(t);
-      o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+    /* ---------------------------------------------------------
+       加载真实录音
+
+       用 Web Audio 而不是 <audio> 标签，有三个原因：
+         · 能复用现有那套"解锁 + 淡入"的逻辑，不用再对付一遍自动播放策略
+         · 能接到同一条延迟线上，跟其他声音的空间感一致
+         · 循环点可控（<audio loop> 在有些浏览器上接缝会有咔哒声）
+       --------------------------------------------------------- */
+    function startRealLoop() {
+      if (laughSrc || !laughBuf || muted) return;
+      if (!ctx || ctx.state !== "running") return;
+      try {
+        var src = ctx.createBufferSource();
+        src.buffer = laughBuf;
+        src.loop = true;
+        src.connect(dry);
+        src.connect(wet);
+        src.start(0);
+        laughSrc = src;
+        useSynth = false;
+      } catch (e) {
+        useSynth = true;
+        lastErr = "playReal: " + (e && e.message ? e.message : e);
+      }
     }
 
-    /** 每隔一小段排一次未来的音 —— 不这么做，定时器一抖节奏就散了 */
+    function decodeAudio(buf, ok, fail) {
+      // 新浏览器返回 Promise；老 Safari 只认回调。两边都照顾。
+      var done = false;
+      function once(fn, arg) { if (!done) { done = true; fn(arg); } }
+      try {
+        var p = ctx.decodeAudioData(
+          buf,
+          function (d) { once(ok, d); },
+          function (e) { once(fail, e); }
+        );
+        if (p && p.then) {
+          p.then(function (d) { once(ok, d); },
+                 function (e) { once(fail, e); });
+        }
+      } catch (e) {
+        once(fail, e);
+      }
+    }
+
+    function loadReal() {
+      if (laughTried || !ctx) return;
+      laughTried = true;
+      if (!window.fetch) { useSynth = true; return; }
+      try {
+        fetch("sounds/laugh.mp3")
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.arrayBuffer();
+          })
+          .then(function (buf) {
+            decodeAudio(buf,
+              function (d) {
+                laughBuf = d;
+                // 已经在响了就直接接上，否则等 fadeIn 时再起
+                if (ctx.state === "running" && fadedIn) startRealLoop();
+              },
+              function (e) {
+                useSynth = true;
+                lastErr = "decode: " + (e && e.message ? e.message : e);
+              });
+          })
+          .catch(function (e) {
+            useSynth = true;
+            lastErr = "fetch: " + (e && e.message ? e.message : e);
+          });
+      } catch (e) {
+        useSynth = true;
+      }
+    }
+
+    /* ---------------------------------------------------------
+       合成笑声（兜底）—— 真实录音加载不出来时才用
+       --------------------------------------------------------- */
+
+    /** 一个"嘿" */
+    function heh(t, base, vol) {
+      var o = ctx.createOscillator();
+      var f = ctx.createBiquadFilter();
+      var g = ctx.createGain();
+
+      o.type = "triangle";
+      // 先往上挑一点再滑下来 —— 像笑的时候嗓子那一下抖动
+      o.frequency.setValueAtTime(base * 1.18, t);
+      o.frequency.exponentialRampToValueAtTime(base * 1.32, t + 0.035);
+      o.frequency.exponentialRampToValueAtTime(base * 0.86, t + 0.16);
+
+      // 带通放在第二谐波附近，声音就"有人味"了
+      f.type = "bandpass";
+      f.frequency.value = base * 2.1;
+      f.Q.value = 2.2;
+
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0004, t + 0.19);
+
+      o.connect(f); f.connect(g); g.connect(dry); g.connect(wet);
+      o.start(t); o.stop(t + 0.22);
+    }
+
+    /** 一串笑：4~7 个"嘿"，音高一个个往下掉（真笑就是越笑越低） */
+    function laughBurst(t0) {
+      var n = 4 + ((Math.random() * 4) | 0);
+      var base = 390 + Math.random() * 110;      // 每串换个调，不然听着像复读
+      var gap = 0.125 + Math.random() * 0.055;   // 越笑越快
+      for (var i = 0; i < n; i++) {
+        heh(t0 + i * gap * (1 - i * 0.05),
+            base * (1 - i * 0.038),
+            (0.17 - i * 0.014) * (0.85 + Math.random() * 0.3));
+      }
+      return n * gap;
+    }
+
+    /* ---------------------------------------------------------
+       排下一串笑
+       间隔随机 1.1~3.2 秒 —— 一直不停会吵，留点空档才像"偶尔笑一下"
+       --------------------------------------------------------- */
+    var nextLaugh = 0;
+
     function schedule() {
       if (!ctx) return;
       // 被浏览器挂起时**不要排音** —— 那会排出一堆"过去的时间"，
       // 等真正响起来的时候全部挤在一起炸出来。
       if (ctx.state !== "running") return;
-      var ahead = 0.5;
-      while (nextTime < ctx.currentTime + ahead) {
-        var i = step % 32;
-        var bar = (i / 8) | 0;
-        var chord = CHORDS[bar];
-
-        // 琶音：每半拍轻轻拨一个和弦音
-        soft(nextTime, chord[ARP[i % 6]], SPB * 1.9, 0.042);
-
-        // 主旋律
-        if (MEL[i]) soft(nextTime, MEL[i], SPB * 3.2, 0.085);
-
-        // 低音：每小节头拍一个长音
-        if (i % 8 === 0) soft(nextTime, BASS[bar], SPB * 7, 0.065);
-
-        nextTime += SPB;
+      if (!useSynth) return;      // 用着真实录音，就不用合成了
+      if (!nextLaugh) nextLaugh = ctx.currentTime + 0.25;
+      var ahead = 1.2;
+      while (nextLaugh < ctx.currentTime + ahead) {
+        var dur = laughBurst(nextLaugh);
+        // 笑完歇一下再笑
+        nextLaugh += dur + 1.1 + Math.random() * 2.1;
         step++;
       }
     }
 
     function loop() {
       schedule();
-      timer = setTimeout(loop, 90);
+      timer = setTimeout(loop, 120);
     }
 
     /**
@@ -588,6 +666,14 @@ try {
         master.gain.linearRampToValueAtTime(VOL, t + 1.6);
         fadedIn = true;
       } catch (e) {}
+      // 淡入的同时把声音接上：成功就是真实录音循环，失败才用合成
+      if (!startRealLoopSafe()) useSynth = true;
+    }
+
+    /** 试着起真实录音；成了返回 true */
+    function startRealLoopSafe() {
+      if (laughBuf) { startRealLoop(); return true; }
+      return false;
     }
 
     return {
@@ -621,8 +707,10 @@ try {
           dry.gain.value = 1;
           dry.connect(master);
 
-          nextTime = ctx.currentTime + 0.1;
+          nextLaugh = 0;          // 排程起点，第一次 schedule() 时再定
           started = true;
+          // 先把真实录音拉下来（解码不影响后面的解锁流程）
+          loadReal();
           loop();
           this.resume();          // resume 里会负责淡入
           return true;
