@@ -516,6 +516,7 @@ try {
 
     var dry = null, wet = null;
     var fadedIn = false;
+    var lastErr = "无";
 
     function hz(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
 
@@ -625,7 +626,10 @@ try {
           loop();
           this.resume();          // resume 里会负责淡入
           return true;
-        } catch (e) { return false; }
+        } catch (e) {
+          lastErr = "boot: " + (e && e.message ? e.message : e);
+          return false;
+        }
       },
       /** 被浏览器挂起时，靠一次用户交互把它唤醒，然后淡入 */
       resume: function () {
@@ -636,14 +640,19 @@ try {
             var p = ctx.resume();
             if (p && p.then) {
               p.then(function () { fadeIn(); },
-                     function () { /* 还是不让放，等下一次交互 */ });
+                     function (e2) {
+                       lastErr = "resume 被拒: " +
+                         (e2 && e2.message ? e2.message : e2);
+                     });
             } else {
               setTimeout(function () { fadeIn(); }, 120);
             }
           } else if (ctx.state === "running") {
             fadeIn();
           }
-        } catch (e) {}
+        } catch (e) {
+          lastErr = "resume: " + (e && e.message ? e.message : e);
+        }
         return self;
       },
       /** 真的在响吗（而不是"建好了但被挂着"） */
@@ -663,6 +672,13 @@ try {
       },
       isStarted: function () { return started; },
       isMuted: function () { return muted; },
+      /** 给调试面板用：真实的音频状态 */
+      state: function () { return ctx ? ctx.state : "(还没建)"; },
+      vol: function () {
+        try { return master ? master.gain.value.toFixed(3) : "-"; }
+        catch (e) { return "-"; }
+      },
+      lastError: function () { return lastErr; },
       /** 点屏幕时的"叮"一声，很轻，配轻音乐 */
       blip: function () {
         if (!started || muted || !ctx || ctx.state !== "running") return;
@@ -683,29 +699,63 @@ try {
   })();
 
   /* -------------------------------------------------------------
+     调试面板：只在网址后面加 ?debug=1 才出现
+     平时完全不显示，不影响发给朋友。
+     用来远程排查"为什么没声音"—— 把屏幕上的字念给我就行。
+     ------------------------------------------------------------- */
+  var DEBUG = /[?&]debug=1/.test(window.location.search);
+  var dbgEl = null;
+  if (DEBUG) {
+    dbgEl = document.createElement("div");
+    dbgEl.style.cssText =
+      "position:fixed;left:8px;top:8px;right:8px;z-index:99999;" +
+      "background:rgba(0,0,0,.85);color:#7CFC98;" +
+      "font:11.5px/1.65 ui-monospace,Menlo,Consolas,monospace;" +
+      "padding:10px 12px;border-radius:8px;white-space:pre-wrap;" +
+      "word-break:break-all;pointer-events:none";
+    document.body.appendChild(dbgEl);
+  }
+  function refreshDebug() {
+    if (!dbgEl) return;
+    var hasAC = !!(window.AudioContext || window.webkitAudioContext);
+    var lines = [
+      "\u2500\u2500 \u58F0\u97F3\u8BCA\u65AD \u2500\u2500",
+      "AudioContext \u652F\u6301 : " + (hasAC ? "\u662F" : "\u5426"),
+      "boot \u8FC7           : " + Audio.isStarted(),
+      "ctx.state        : " + Audio.state(),
+      "\u5728\u54CD           : " + Audio.isPlaying(),
+      "\u9759\u97F3           : " + Audio.isMuted(),
+      "\u4E3B\u97F3\u91CF         : " + Audio.vol(),
+      "\u6700\u540E\u4E00\u6B21\u9519\u8BEF  : " + Audio.lastError(),
+      "\u4EA4\u4E92\u8FC7\u5417       : " + (interacted ? "\u662F" : "\u5426"),
+      "\u9875\u9762\u6765\u6E90       : " + window.location.host
+    ];
+    dbgEl.textContent = lines.join("\n");
+  }
+
+  var interacted = false;
+  function markInteracted() { interacted = true; refreshDebug(); }
+
+  if (DEBUG) setInterval(refreshDebug, 400);
+
+  /* -------------------------------------------------------------
      声音：**进页面就自动开**，不用点
-
-     但浏览器有硬规定：不许网页自动出声。所以这里分两步走 ——
-
-       ① 立刻 boot()：把音频引擎建好、音乐排上。
-          有些环境（微信内置浏览器、用户常访问的站点）这时候就能响。
-       ② 如果被浏览器挂起（state === "suspended"），
-          就等**任意一次交互**把它唤醒：点、触摸、滚、按键都算。
-          用户随便动一下，声音就来了，不用去找什么按钮。
      ------------------------------------------------------------- */
   Audio.boot();
+  if (DEBUG) refreshDebug();
 
   var unlocked = false;
   function unlock() {
+    interacted = true;
     if (unlocked && Audio.isPlaying()) return;
     Audio.resume();
-    // resume 是异步的，稍等一下再看真的响了没
     setTimeout(function () {
       if (Audio.isPlaying()) {
         unlocked = true;
         paintSnd();
       }
-    }, 60);
+      if (DEBUG) refreshDebug();
+    }, 80);
   }
   document.addEventListener("pointerdown", unlock);
   document.addEventListener("touchstart", unlock);
