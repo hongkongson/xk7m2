@@ -3,10 +3,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>哈哈哈哈哈哈哈</title>
 
-<!-- 分享卡片上只显示「...」—— 写「哈哈哈哈哈哈哈」会在微信里提前剧透 -->
+<!-- 分享卡片只显示「...」，不剧透 -->
 <meta property="og:title" content="...">
 <meta property="og:description" content="">
-<meta name="theme-color" content="#fffbe8">
+<meta name="theme-color" content="#1a0810">
 <meta name="robots" content="noindex, nofollow">
 
 <style>
@@ -14,19 +14,20 @@
     margin: 0;
     height: 100%;
     overflow: hidden;
-    background: #fffbe8;
+    /* 暗底暖色 —— 亮字才能在暗处"发光"，远近才有退路 */
+    background: #12040a;
+    background-image:
+      radial-gradient(ellipse 90% 70% at 50% 42%, #3a0f1e 0%, #1d0710 45%, #0a0206 100%);
     font-family: "Microsoft YaHei UI", "PingFang SC", "Heiti SC",
-                 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+                 "Segoe UI Emoji", "Apple Color Emoji", system-ui, sans-serif;
     -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
     user-select: none;
     cursor: pointer;
   }
 
-  /* 每条都是一小段文字。
-     飘动用的是**纯 CSS 动画**，不用 element.animate() ——
-     后者要 iOS 13.1+ / Safari 13.1+，旧手机上会直接抛错、
-     整个页面一片空白。CSS 动画连很老的手机都认。 */
+  /* 一小段字，从屏幕一边飘到另一边。
+     用纯 CSS 动画（element.animate() 要 iOS 13.1+，旧手机会整页空白）。 */
   .bit {
     position: absolute;
     left: 0;
@@ -37,85 +38,189 @@
     -webkit-animation-timing-function: linear;
     -webkit-animation-fill-mode: forwards;
     pointer-events: none;
+    font-weight: 900;
+    letter-spacing: .02em;
   }
 
-  /* 从左往右：起点在自己宽度之外（屏幕左边外），终点是屏幕右边缘 */
   @keyframes flyLtr {
-    from { transform: translateX(-105%); -webkit-transform: translateX(-105%); }
-    to   { transform: translateX(100vw);  -webkit-transform: translateX(100vw); }
+    from { -webkit-transform: translateX(-105%); transform: translateX(-105%); }
+    to   { -webkit-transform: translateX(100vw);  transform: translateX(100vw); }
   }
-  /* 从右往左 */
   @keyframes flyRtl {
-    from { transform: translateX(100vw);  -webkit-transform: translateX(100vw); }
-    to   { transform: translateX(-105%); -webkit-transform: translateX(-105%); }
+    from { -webkit-transform: translateX(100vw);  transform: translateX(100vw); }
+    to   { -webkit-transform: translateX(-105%); transform: translateX(-105%); }
+  }
+  .ltr { -webkit-animation-name: flyLtr; animation-name: flyLtr; }
+  .rtl { -webkit-animation-name: flyRtl; animation-name: flyRtl; }
+
+  /* ---------- 四种字效，混着用才"花" ---------- */
+
+  /* 发光：近处用，最抢眼 */
+  .s-glow {
+    text-shadow: 0 0 8px currentColor, 0 0 20px currentColor;
   }
 
-  .ltr { animation-name: flyLtr; -webkit-animation-name: flyLtr; }
-  .rtl { animation-name: flyRtl; -webkit-animation-name: flyRtl; }
+  /* 渐变彩虹：字体本身带色带 */
+  .s-grad {
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
 
-  /* JS 万一完全没跑起来，至少还能看到一片哈哈，不至于白屏 */
-  #fallback {
+  /* 空心气球字：只描边不填色 */
+  .s-hollow {
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* 远处的：不加任何特效，自然退到暗处 */
+  .s-plain { }
+
+  /* 小装饰，散布在文字之间 */
+  .deco {
     position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: .3em;
-    font-size: 13vw;
-    color: #d9820a;
-    letter-spacing: .05em;
-    text-align: center;
-    padding: 5vw;
-    box-sizing: border-box;
+    pointer-events: none;
+    line-height: 1;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+    -webkit-animation-timing-function: linear;
+    -webkit-animation-fill-mode: forwards;
+  }
+
+  #fallback {
+    position: absolute; inset: 0;
+    display: -webkit-box; display: flex;
+    -webkit-box-align: center; align-items: center;
+    -webkit-box-pack: center; justify-content: center;
+    font-size: 12vw; color: #ff5c8a; letter-spacing: .05em;
+    text-shadow: 0 0 24px currentColor;
+    text-align: center; padding: 5vw;
+    -webkit-box-sizing: border-box; box-sizing: border-box;
   }
 </style>
 
 <body>
 <div id="fallback">哈哈哈哈哈哈哈😂🤣</div>
+
 <script>
 "use strict";
 
-/* 这一段包在 try 里：万一某个浏览器不认某句语法，
-   至少要把兜底的静态「哈哈」显示出来，而不是一片空白。 */
+/* 全部 ES5 —— 旧手机遇到箭头函数 / const / 模板字符串会直接语法报错 */
 try {
 
   var body = document.body;
 
   /* -------------------------------------------------------------
-     飘什么内容 —— 想改文案就改这个数组
+     飘什么
      ------------------------------------------------------------- */
   var TEXTS = [
-    "哈哈", "哈哈", "哈哈哈", "哈哈哈", "哈哈哈哈", "哈哈哈哈哈",
-    "笑死", "笑死我了", "绷不住了", "我不行了", "鹅鹅鹅",
+    // 各种「哈」
+    "哈", "哈哈", "哈哈哈", "哈哈哈哈", "哈哈哈哈哈", "哈哈哈哈哈哈",
+    "哈哈哈哈哈哈嗝",
+    // 带波浪号（照那张图的风格，满屏 〜）
+    "哈哈〜", "哈哈哈～", "哈哈哈哈〜〜", "笑死〜〜", "嘿嘿〜〜",
+    "哈哈哈哈〜", "哈哈哈～～",
+    // 口头语
+    "笑死", "笑死我了", "绷不住了", "笑不活了", "笑疯了",
+    "鹅鹅鹅", "我不行了",
+    /* 嘲笑向的词。
+       ——注意：这里是**嘲笑**，不是别的意思。
+       爱心、蝴蝶结这类会让人想歪的一律不放。 */
+    "就这？", "哈哈就这", "笑死，就这", "啊这", "典", "就这啊",
+    // 笑哭脸
     "\uD83D\uDE02", "\uD83E\uDD23", "\uD83D\uDE06", "\uD83D\uDE04",
-    "\uD83D\uDE01", "\uD83D\uDC80", "\uD83E\uDD21", "\uD83D\uDE39",
-    "哈哈\uD83D\uDE02", "哈哈哈\uD83E\uDD23", "哈哈哈哈\uD83D\uDE06",
-    "笑死\uD83D\uDE02", "哈哈哈\uD83D\uDC80", "哈哈哈哈哈哈",
-    "\uD83D\uDE06哈哈", "\uD83E\uDD23哈哈哈", "嘿嘿\uD83D\uDE01",
-    "哈哈\uD83D\uDE04", "\uD83E\uDD23\uD83E\uDD23", "\uD83D\uDE02\uD83D\uDE02\uD83D\uDE02"
+    "\uD83D\uDE01", "\uD83D\uDE39", "\uD83D\uDE2D", "\uD83D\uDE05",
+    // 闪光（纯装饰，不暧昧）
+    "\u2728", "\u2B50", "\uD83C\uDF1F", "\uD83D\uDCAB",
+    "\uD83C\uDF89", "\uD83C\uDF8A",
+    // 别的表情（💀=笑死 🃏=小丑 👎=不行 🙅=别说了）
+    "\uD83D\uDC80", "\uD83E\uDD21", "\uD83D\uDC7B", "\uD83D\uDE48",
+    "\uD83D\uDC4E", "\uD83D\uDE45",
+    // 混搭（占多数）
+    "哈哈\uD83D\uDE02", "哈哈哈\uD83E\uDD23", "笑死\uD83D\uDE02",
+    "哈哈\u2728", "嘿嘿\uD83D\uDE01", "就这\uD83E\uDD21",
+    "\uD83D\uDE02\uD83D\uDE02\uD83D\uDE02",
+    "笑不活了\uD83E\uDD23", "哈哈哈哈哈\uD83C\uDF89",
+    "\uD83E\uDD23\uD83E\uDD23\uD83E\uDD23", "\uD83D\uDC80\uD83D\uDC80"
   ];
 
+  /* 颜色多给一些 —— 暗底上饱和度高才好看 */
   var COLORS = [
-    "#c96a12", "#d9820a", "#b8452f", "#c93b3b", "#8a6b1f",
-    "#1a9a4f", "#2f9e8f", "#4084ff", "#8b5cf6", "#c2478f"
+    "#ff5c8a", "#ff2e63", "#ff6b9d", "#ff9ec4", "#ff4d6d",   // 粉红系
+    "#ff8a3d", "#ffb347", "#ffd93d",                          // 橙黄
+    "#5ee7df", "#4dd0ff", "#7aa2ff", "#38bdf8",               // 青蓝
+    "#c084fc", "#e879f9", "#a78bfa",                          // 紫
+    "#7bed9f", "#ffffff"                                      // 绿白
+  ];
+
+  /* 花哨字体：Windows 上认这些就很有味道，手机上自动退回系统字体 */
+  var FONTS = [
+    '"Microsoft YaHei UI","PingFang SC",sans-serif',
+    '"YouYuan","幼圆","Microsoft YaHei UI",sans-serif',
+    '"STXinwei","华文新魏","Microsoft YaHei UI",sans-serif',
+    '"STHupo","华文琥珀","Microsoft YaHei UI",sans-serif',
+    '"FZShuTi","方正舒体","Microsoft YaHei UI",sans-serif',
+    '"STKaiti","楷体","Microsoft YaHei UI",sans-serif',
+    '"SimHei","黑体","Microsoft YaHei UI",sans-serif'
   ];
 
   function rand(a, b) { return a + Math.random() * (b - a); }
   function pick(a) { return a[(Math.random() * a.length) | 0]; }
 
-  /** 聊天字号：手机上也不至于看不清，电脑上也不至于糊脸 */
-  function fontSize() {
+  /* -------------------------------------------------------------
+     远近层次 —— 这是这张图最关键的东西
+
+     真实世界里判断远近靠四条线索，这里全都用上：
+       1. 大小：近的大，远的小
+       2. 亮度：近的亮，远的暗（大气透视）
+       3. 速度：近的快，远的慢  ← **视差**，这条最能骗过眼睛
+       4. 特效：近的有辉光，远的什么都不加，自然退到暗处
+     ------------------------------------------------------------- */
+  function depthOf() {
+    // 平方分布 —— 让"远"的（小字）占多数，像图里那样密密麻麻
+    var d = Math.random();
+    return d * d;
+  }
+
+  function sizeOf(depth) {
     var m = Math.min(window.innerWidth, window.innerHeight);
-    return Math.round(Math.max(14, Math.min(21, m * 0.016)) + rand(-2, 3));
+    // 远：约 13px 起；近：能到屏宽的 13% 左右
+    var lo = Math.max(12, m * 0.018);
+    var hi = Math.max(28, m * 0.13);
+    return Math.round(lo + (hi - lo) * depth);
+  }
+
+  function styleOf(depth, el, fs, color) {
+    var r = Math.random();
+    var cls;
+    // 远处的（depth 小）：不加特效，靠"什么都没加"退到背景里
+    if (depth < 0.30) {
+      cls = "s-plain";
+    } else if (r < 0.46) {
+      cls = "s-glow";
+    } else if (r < 0.72) {
+      cls = "s-grad";
+      // 渐变：随便挑两个颜色组成一条色带
+      var a = pick(COLORS), b2 = pick(COLORS);
+      var ang = (Math.random() * 180) | 0;
+      el.style.backgroundImage = "linear-gradient(" + ang + "deg," + a + "," + b2 + ")";
+    } else {
+      cls = "s-hollow";
+      // 空心字必须显式给描边色 —— color 已经是 transparent，
+      // 用 currentColor 会连描边一起透明掉
+      el.style.webkitTextStrokeColor = color;
+      el.style.webkitTextStrokeWidth =
+        Math.max(1, Math.min(3.4, fs * 0.055)) + "px";
+    }
+    return cls;
   }
 
   /* -------------------------------------------------------------
-     泳道：屏幕横着切成很多条，同一条短时间内不重复用。
-     不这么做的话，几百条小字会随机叠在一起糊成一团。
+     泳道：横着切条，同一条短时间内不重复用，避免叠成一坨
      ------------------------------------------------------------- */
   var lanes = [];
-  var LANE_H = 26;
+  var LANE_H = 30;
 
   function rebuildLanes() {
     var n = Math.max(6, Math.floor(window.innerHeight / LANE_H));
@@ -131,84 +236,124 @@ try {
       if (lanes[i] <= now) free.push(i);
     }
     var lane = free.length ? pick(free) : ((Math.random() * lanes.length) | 0);
-    lanes[lane] = now + rand(250, 1100);
+    lanes[lane] = now + rand(200, 900);
     return lane;
   }
 
   /* -------------------------------------------------------------
      放一条出去
      ------------------------------------------------------------- */
-  var seq = 0;
-
   function spawn(opts) {
     opts = opts || {};
     var W = window.innerWidth;
     var H = window.innerHeight;
 
+    var depth = (opts.depth != null) ? opts.depth : depthOf();
+    var fs = sizeOf(depth);
+    var color = pick(COLORS);
+
     var el = document.createElement("span");
-    el.className = "bit";
     el.textContent = opts.text || pick(TEXTS);
-
-    var fs = opts.size || fontSize();
     el.style.fontSize = fs + "px";
-    el.style.color = opts.color || pick(COLORS);
+    el.style.color = color;
+    el.style.fontFamily = opts.font || pick(FONTS);
 
-    // 三档透明度：有的清楚有的淡，看着有远近层次，不像贴纸糊满屏
-    var r = Math.random();
-    el.style.opacity = opts.opacity != null ? opts.opacity
-      : (r < 0.55 ? rand(0.75, 1)
-        : r < 0.88 ? rand(0.45, 0.72)
-          : rand(0.18, 0.4));
+    // 亮度随远近：近的几乎不透明，远的很淡
+    el.style.opacity = (0.20 + depth * 0.80) * rand(0.88, 1);
+
+    // 近的盖在远的上面
+    el.style.zIndex = Math.round(depth * 100);
+
+    // 字效
+    var cls = styleOf(depth, el, fs, color);
+    el.className = "bit " + cls;
 
     var lane = pickLane();
-    var y = lane * LANE_H + rand(-4, 4);
+    var y = lane * LANE_H + rand(-5, 5);
     el.style.top = Math.max(0, Math.min(H - fs - 2, y)) + "px";
 
-    // 左右双向交错，看着才不呆板
+    // 左右双向交错
     var ltr = Math.random() < 0.5;
-    el.className = "bit " + (ltr ? "ltr" : "rtl");
+    el.className += ltr ? " ltr" : " rtl";
 
-    // 速度：小字慢慢飘像聊天，偶尔来一条快的
-    var fast = Math.random() < 0.12;
-    var speed = opts.speed || (fast ? rand(260, 420) : rand(45, 130));
-    // 路程 ≈ 屏宽 + 自己宽度，用屏宽近似就够
-    var dur = ((W + 200) / speed) * 1000;
+    /* **视差**：近的飘得快，远的飘得慢。
+       这一条是"层次感"的灵魂 —— 大小和亮度只是静态的，
+       速度差才让人眼真的觉得有纵深。 */
+    var speed = opts.speed || (18 + depth * depth * 240);
+    if (Math.random() < 0.08) speed *= rand(2, 3.2);   // 偶尔来一条窜过去的
+    var dur = ((W + 260) / speed) * 1000;
     el.style.animationDuration = dur + "ms";
     el.style.webkitAnimationDuration = dur + "ms";
-    // 负延时 = 一进来就已经飘在半路上，屏幕上不会一开始空一片
-    el.style.animationDelay = (-Math.random() * dur * 0.9) + "ms";
+    el.style.animationDelay = (-Math.random() * dur * 0.85) + "ms";
 
-    el.setAttribute("data-i", ++seq);
-
-    // 飘完就删，不然元素越积越多，几分钟后页面就卡死了
-    el.addEventListener("animationend", function () {
+    var onEnd = function () {
       if (el.parentNode) el.parentNode.removeChild(el);
-    });
+      el.removeEventListener("webkitAnimationEnd", onEnd);
+      el.removeEventListener("animationend", onEnd);
+    };
+    el.addEventListener("webkitAnimationEnd", onEnd);
+    el.addEventListener("animationend", onEnd);
 
     body.appendChild(el);
   }
 
+  /* 偶尔飘过一些孤零零的小装饰（〜 丶 ✨），像图里那样散布在字缝里 */
+  function spawnDeco() {
+    var W = window.innerWidth, H = window.innerHeight;
+    var pool = ["\u301C", "~", "\uFE4F", "\u2728", "\u30FB", "\uFF5E"];
+    var el = document.createElement("span");
+    el.className = "deco";
+    el.textContent = pick(pool);
+    var fs = rand(12, 34);
+    el.style.fontSize = fs + "px";
+    el.style.color = pick(COLORS);
+    el.style.opacity = rand(0.25, 0.7);
+    el.style.top = rand(0, H - fs) + "px";
+    var ltr = Math.random() < 0.5;
+    el.className = "deco " + (ltr ? "ltr" : "rtl");
+    var dur = rand(4000, 12000);
+    el.style.animationDuration = dur + "ms";
+    el.style.webkitAnimationDuration = dur + "ms";
+    el.style.animationDelay = (-Math.random() * dur * 0.8) + "ms";
+    var onEnd = function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+      el.removeEventListener("webkitAnimationEnd", onEnd);
+      el.removeEventListener("animationend", onEnd);
+    };
+    el.addEventListener("webkitAnimationEnd", onEnd);
+    el.addEventListener("animationend", onEnd);
+    body.appendChild(el);
+  }
+
   /* -------------------------------------------------------------
-     自动飘
+     主循环
      ------------------------------------------------------------- */
   var timer = null;
   var running = true;
-  var MAX = 190;
+  var MAX = 180;
+
+  function countBits() {
+    var n = 0, kids = body.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].className &&
+          String(kids[i].className).indexOf("s-") >= 0) n++;
+    }
+    return n;
+  }
 
   function tick() {
     if (!running) return;
-    var n = body.childElementCount;
-    if (n < MAX) {
+    if (body.childElementCount < MAX) {
       spawn();
-      if (n < 40) { spawn(); spawn(); }
+      if (body.childElementCount < 45) { spawn(); spawn(); }
+      if (Math.random() < 0.22) spawnDeco();
     }
-    timer = setTimeout(tick, rand(45, 150));
+    timer = setTimeout(tick, rand(40, 140));
   }
 
   function start() {
     if (timer) return;
     running = true;
-    // 兜底那行大字先藏起来，动画跑起来就不需要它了
     var fb = document.getElementById("fallback");
     if (fb) fb.style.display = "none";
     tick();
@@ -221,38 +366,46 @@ try {
   }
 
   /* -------------------------------------------------------------
-     点一下：从手指位置炸出一堆
+     点一下：从手指位置炸出一簇（按远近随机，看着像涌出来）
      ------------------------------------------------------------- */
   function burst(cx, cy) {
-    for (var i = 0; i < 22; i++) {
+    for (var i = 0; i < 24; i++) {
       (function (i) {
         setTimeout(function () {
+          var depth = depthOf();
+          var fs = sizeOf(depth);
           var el = document.createElement("span");
-          var fs = fontSize();
-          el.className = "bit";
           el.textContent = pick(TEXTS);
           el.style.fontSize = fs + "px";
-          el.style.color = pick(COLORS);
-          el.style.opacity = rand(0.7, 1);
+          var color = pick(COLORS);
+          el.style.color = color;
+          el.style.fontFamily = pick(FONTS);
+          el.style.opacity = 0.35 + depth * 0.65;
+          el.style.zIndex = 200 + Math.round(depth * 100);
           el.style.top = Math.max(0, Math.min(window.innerHeight - fs - 2,
-            cy + rand(-70, 70))) + "px";
+            cy + rand(-90, 90))) + "px";
           var toRight = cx < window.innerWidth / 2;
-          el.className = "bit " + (toRight ? "ltr" : "rtl");
-          var dur = rand(1600, 3600);
+          el.className = "bit " + styleOf(depth, el, fs, color) +
+            (toRight ? " ltr" : " rtl");
+          var dur = rand(1400, 4200);
           el.style.animationDuration = dur + "ms";
           el.style.webkitAnimationDuration = dur + "ms";
           el.style.animationDelay = "0ms";
-          el.addEventListener("animationend", function () {
+          var onEnd = function () {
             if (el.parentNode) el.parentNode.removeChild(el);
-          });
+            el.removeEventListener("webkitAnimationEnd", onEnd);
+            el.removeEventListener("animationend", onEnd);
+          };
+          el.addEventListener("webkitAnimationEnd", onEnd);
+          el.addEventListener("animationend", onEnd);
           body.appendChild(el);
-        }, i * 32);
+        }, i * 28);
       })(i);
     }
   }
 
-  var down = "onpointerdown" in window ? "pointerdown" : "touchstart";
-  document.addEventListener(down, function (e) {
+  var downEvt = ("onpointerdown" in window) ? "pointerdown" : "touchstart";
+  document.addEventListener(downEvt, function (e) {
     var t = (e.touches && e.touches[0]) || e;
     burst(t.clientX || 0, t.clientY || 0);
   });
@@ -260,9 +413,9 @@ try {
   /* -------------------------------------------------------------
      省电 & 尺寸变化
      ------------------------------------------------------------- */
-  var hiddenProp = document.hidden !== undefined ? "hidden" : "webkitHidden";
+  var hiddenKey = (document.hidden !== undefined) ? "hidden" : "webkitHidden";
   document.addEventListener("visibilitychange", function () {
-    if (document[hiddenProp]) stop(); else start();
+    if (document[hiddenKey]) stop(); else start();
   });
 
   var rt = null;
@@ -271,7 +424,8 @@ try {
     rt = setTimeout(function () {
       var kids = [].slice.call(body.children);
       for (var i = 0; i < kids.length; i++) {
-        if (kids[i].className && kids[i].className.indexOf("bit") >= 0) {
+        var c = String(kids[i].className || "");
+        if (c.indexOf("bit") >= 0 || c.indexOf("deco") >= 0) {
           if (kids[i].parentNode) kids[i].parentNode.removeChild(kids[i]);
         }
       }
@@ -282,8 +436,6 @@ try {
   start();
 
 } catch (err) {
-  // 出错就把兜底内容露出来 —— 宁可看到一个静态的「哈哈」，
-  // 也不要一片空白让人以为打不开
   var fb = document.getElementById("fallback");
   if (fb) fb.style.display = "flex";
 }
