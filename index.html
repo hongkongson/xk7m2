@@ -757,12 +757,37 @@ try {
       if (DEBUG) refreshDebug();
     }, 80);
   }
-  document.addEventListener("pointerdown", unlock);
-  document.addEventListener("touchstart", unlock);
-  document.addEventListener("click", unlock);
-  document.addEventListener("keydown", unlock);
-  document.addEventListener("touchmove", unlock);
-  window.addEventListener("scroll", unlock);
+  /* 把"解锁"绑到**几乎所有能算数的事件**上。
+     浏览器的规定是：必须先有一次真实的用户激活（user activation）。
+     规范里算数的有：pointerdown / pointerup / mousedown / mouseup /
+     touchend / keydown / click。
+     ——多绑几个，是为了让用户**随便怎么碰一下**都能解锁，
+     而不是非得精准点在某个元素上。 */
+  var UNLOCK_EVENTS = [
+    "pointerdown", "pointerup", "mousedown", "mouseup",
+    "touchstart", "touchend", "click", "keydown"
+  ];
+  for (var ui = 0; ui < UNLOCK_EVENTS.length; ui++) {
+    document.addEventListener(UNLOCK_EVENTS[ui], unlock);
+  }
+  // 切回本页时再试一次（用户可能刚在别处点过，这时也许已经获得激活）
+  document.addEventListener("visibilitychange", function () {
+    if (!document[hiddenKey]) Audio.resume();
+  });
+  window.addEventListener("focus", function () { Audio.resume(); });
+
+  /* 页面加载后短时间内多试几次。
+     没有交互时这些都会被浏览器拒绝（正常），
+     但如果用户之前常来这个站点（Chrome 的 MEI 达标），
+     这里就能直接放起来 —— 那才是真正的"一打开就响"。
+     重复调用没有副作用。 */
+  var tries = 0;
+  var retry = setInterval(function () {
+    tries++;
+    if (Audio.isPlaying() || tries > 12) { clearInterval(retry); return; }
+    Audio.resume();
+    if (DEBUG) refreshDebug();
+  }, 500);
 
   /* 声音开关 —— 不再是"点我开启"，而是**关掉**用的。
      默认就响，想安静才点它。所以平时它很淡，不抢戏。 */
