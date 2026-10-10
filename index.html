@@ -114,6 +114,44 @@
   }
   #snd:hover, #snd:active { opacity: .9; background: rgba(60, 12, 30, .7); }
 
+  /* ---------- 声音没起来时的提示 ---------- */
+  /* 浏览器禁止网页自动出声，必须有**一次真实交互**（点/摸/滚/按键）。
+     我们一进页面就自动尝试了；万一被拦，隔 1.6 秒浮出这条提示告诉用户
+     该怎么办 —— 而不是让他以为"这页面坏了"。
+     一旦真的响了，它立刻消失。 */
+  #hint {
+    position: fixed;
+    left: 50%; bottom: 18px;
+    -webkit-transform: translateX(-50%);
+    transform: translateX(-50%);
+    z-index: 9998;
+    padding: 8px 16px;
+    border: 1px solid rgba(255, 110, 160, .5);
+    border-radius: 999px;
+    background: rgba(36, 8, 18, .8);
+    color: #ffc2d8;
+    font-size: 13px;
+    font-family: inherit;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    -webkit-transition: opacity .5s;
+    transition: opacity .5s;
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  #hint.show { opacity: 1; }
+  @keyframes hintPulse {
+    0%, 100% { -webkit-transform: translateX(-50%) scale(1);
+               transform: translateX(-50%) scale(1); }
+    50%      { -webkit-transform: translateX(-50%) scale(1.04);
+               transform: translateX(-50%) scale(1.04); }
+  }
+  #hint.show {
+    -webkit-animation: hintPulse 1.6s ease-in-out infinite;
+    animation: hintPulse 1.6s ease-in-out infinite;
+  }
+
   #fallback {
     position: absolute; inset: 0;
     display: -webkit-box; display: flex;
@@ -131,6 +169,7 @@
 <button id="snd" type="button" title="声音开关">
   <span class="ico">🔊</span>
 </button>
+<div id="hint"></div>
 
 <script>
 "use strict";
@@ -678,20 +717,49 @@ try {
   /* 声音开关 —— 不再是"点我开启"，而是**关掉**用的。
      默认就响，想安静才点它。所以平时它很淡，不抢戏。 */
   var sndBtn = document.getElementById("snd");
+  var hintEl = document.getElementById("hint");
+
   function paintSnd() {
     if (!sndBtn) return;
-    var on = !Audio.isMuted();
-    sndBtn.className = Audio.isStarted() ? "on" : "";
-    sndBtn.firstChild.textContent = on ? "\uD83D\uDD0A" : "\uD83D\uDD07";
+    var playing = Audio.isPlaying();
+    sndBtn.firstChild.textContent = playing ? "\uD83D\uDD0A" : "\uD83D\uDD07";
+    sndBtn.style.opacity = playing ? "" : ".75";   // 没响时亮一点，好找
   }
+
+  /**
+   * 根据真实音频状态决定要不要给提示。
+   * 三种情况：
+   *   响了            → 藏起来，什么都不说
+   *   建好了但被挂起   → 提示"点一下屏幕"
+   *   浏览器不支持     → 提示"不支持网页声音"，别让用户白等
+   */
+  function refreshHint() {
+    if (!hintEl) return;
+    if (Audio.isPlaying()) { hintEl.className = ""; return; }
+    if (!Audio.isStarted()) {
+      hintEl.textContent = "\u26A0\uFE0F 这个浏览器不支持网页发声";
+      hintEl.className = "show";
+      return;
+    }
+    hintEl.textContent = "\uD83D\uDD07 点一下屏幕就有声音";
+    hintEl.className = "show";
+  }
+
   if (sndBtn) {
     sndBtn.addEventListener("click", function (e) {
       e.stopPropagation();          // 别让它同时触发"炸一堆"
       e.preventDefault();
       Audio.toggle();
       paintSnd();
+      refreshHint();
     });
   }
+
+  // 1.6 秒后检查一次：如果还没响，就把提示浮出来
+  setTimeout(refreshHint, 1600);
+  // 再多检查几次（有些环境解锁慢）
+  setTimeout(refreshHint, 3000);
+  setTimeout(function () { paintSnd(); refreshHint(); }, 5000);
 
   var downEvt = ("onpointerdown" in window) ? "pointerdown" : "touchstart";
   document.addEventListener(downEvt, function (e) {
@@ -699,7 +767,18 @@ try {
     if (sndBtn && e.target === sndBtn) return;    // 点按钮时别炸字
     burst(t.clientX || 0, t.clientY || 0);
     Audio.blip();
+    // 交互之后马上再看一眼，响了就把提示收掉
+    setTimeout(function () { paintSnd(); refreshHint(); }, 400);
   });
+
+  // 首次真正响起来时，刷新一下按钮和提示
+  var watch = setInterval(function () {
+    if (Audio.isPlaying()) {
+      paintSnd();
+      refreshHint();
+      clearInterval(watch);
+    }
+  }, 700);
 
   /* -------------------------------------------------------------
      省电 & 尺寸变化
